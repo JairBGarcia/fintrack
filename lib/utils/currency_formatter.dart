@@ -1,12 +1,17 @@
-import 'package:intl/intl.dart';
+String formatCurrency(double value) {
+  final number = value.round().toString();
 
-class CurrencyFormatter {
-  static final NumberFormat _formatter = NumberFormat(
-    '#,##0',
-    'es_CO',
-  );
+  final buffer = StringBuffer();
 
-  static String format(double value) {
-    return '\$${_formatter.format(value)}';
+  for (int i = 0; i < number.length; i++) {
+    final positionFromEnd = number.length - i;
+
+    buffer.write(number[i]);
+
+    if (positionFromEnd > 1 && positionFromEnd % 3 == 1) {
+      buffer.write('.');
+    }
   }
+
+  return '\$${buffer.toString()}';
 }
