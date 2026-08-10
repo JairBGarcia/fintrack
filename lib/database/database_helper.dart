@@ -3,6 +3,8 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models/account.dart';
 import '../models/transaction.dart';
+import '../models/credit_card.dart';
+import '../models/credit_card_purchase.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance =
@@ -11,6 +13,10 @@ class DatabaseHelper {
   static Database? _database;
 
   DatabaseHelper._internal();
+
+  // ============================================================
+  // DATABASE
+  // ============================================================
 
   Future<Database> get database async {
     if (_database != null) {
@@ -32,7 +38,12 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
+      onConfigure: (db) async {
+        await db.execute(
+          'PRAGMA foreign_keys = ON',
+        );
+      },
       onCreate: _createDatabase,
       onUpgrade: _onUpgrade,
     );
@@ -46,6 +57,10 @@ class DatabaseHelper {
     Database db,
     int version,
   ) async {
+    // ----------------------------------------------------------
+    // CUENTAS
+    // ----------------------------------------------------------
+
     await db.execute('''
       CREATE TABLE accounts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,6 +69,10 @@ class DatabaseHelper {
         balance REAL NOT NULL
       )
     ''');
+
+    // ----------------------------------------------------------
+    // MOVIMIENTOS
+    // ----------------------------------------------------------
 
     await db.execute('''
       CREATE TABLE transactions (
@@ -65,8 +84,51 @@ class DatabaseHelper {
         category TEXT NOT NULL,
         description TEXT,
         date TEXT NOT NULL,
-        FOREIGN KEY (account_id) REFERENCES accounts(id),
-        FOREIGN KEY (destination_account_id) REFERENCES accounts(id)
+
+        FOREIGN KEY (account_id)
+          REFERENCES accounts(id),
+
+        FOREIGN KEY (destination_account_id)
+          REFERENCES accounts(id)
+      )
+    ''');
+
+    // ----------------------------------------------------------
+    // TARJETAS DE CRÉDITO
+    // ----------------------------------------------------------
+
+    await db.execute('''
+      CREATE TABLE credit_cards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        bank TEXT NOT NULL,
+        credit_limit REAL NOT NULL,
+        used_amount REAL NOT NULL,
+        cutoff_day INTEGER,
+        payment_due_day INTEGER,
+        minimum_payment REAL NOT NULL
+      )
+    ''');
+
+    // ----------------------------------------------------------
+    // COMPRAS DE TARJETAS
+    // ----------------------------------------------------------
+
+    await db.execute('''
+      CREATE TABLE credit_card_purchases (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        credit_card_id INTEGER NOT NULL,
+        description TEXT NOT NULL,
+        category TEXT NOT NULL,
+        amount REAL NOT NULL,
+        purchase_date TEXT NOT NULL,
+        installments INTEGER NOT NULL,
+        annual_effective_rate REAL NOT NULL,
+        paid_amount REAL NOT NULL,
+
+        FOREIGN KEY (credit_card_id)
+          REFERENCES credit_cards(id)
+          ON DELETE CASCADE
       )
     ''');
   }
@@ -80,19 +142,35 @@ class DatabaseHelper {
     int oldVersion,
     int newVersion,
   ) async {
-    if (oldVersion < 2) {
+    if (oldVersion < 3) {
       await db.execute('''
-        CREATE TABLE transactions (
+        CREATE TABLE credit_cards (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          type TEXT NOT NULL,
-          amount REAL NOT NULL,
-          account_id INTEGER,
-          destination_account_id INTEGER,
+          name TEXT NOT NULL,
+          bank TEXT NOT NULL,
+          credit_limit REAL NOT NULL,
+          used_amount REAL NOT NULL,
+          cutoff_day INTEGER,
+          payment_due_day INTEGER,
+          minimum_payment REAL NOT NULL
+        )
+      ''');
+
+      await db.execute('''
+        CREATE TABLE credit_card_purchases (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          credit_card_id INTEGER NOT NULL,
+          description TEXT NOT NULL,
           category TEXT NOT NULL,
-          description TEXT,
-          date TEXT NOT NULL,
-          FOREIGN KEY (account_id) REFERENCES accounts(id),
-          FOREIGN KEY (destination_account_id) REFERENCES accounts(id)
+          amount REAL NOT NULL,
+          purchase_date TEXT NOT NULL,
+          installments INTEGER NOT NULL,
+          annual_effective_rate REAL NOT NULL,
+          paid_amount REAL NOT NULL,
+
+          FOREIGN KEY (credit_card_id)
+            REFERENCES credit_cards(id)
+            ON DELETE CASCADE
         )
       ''');
     }
@@ -156,14 +234,13 @@ class DatabaseHelper {
   }
 
   // ============================================================
-  // APLICAR MOVIMIENTO A LOS SALDOS
+  // APLICAR MOVIMIENTO
   // ============================================================
 
   Future<void> _applyTransaction(
     DatabaseExecutor db,
     TransactionModel transaction,
   ) async {
-    // INGRESO
     if (transaction.type == 'ingreso') {
       if (transaction.accountId != null) {
         await db.rawUpdate(
@@ -178,10 +255,7 @@ class DatabaseHelper {
           ],
         );
       }
-    }
-
-    // GASTO
-    else if (transaction.type == 'gasto') {
+    } else if (transaction.type == 'gasto') {
       if (transaction.accountId != null) {
         await db.rawUpdate(
           '''
@@ -195,11 +269,9 @@ class DatabaseHelper {
           ],
         );
       }
-    }
-
-    // TRANSFERENCIA
-    else if (transaction.type ==
-        'transferencia') {
+    } else if (
+      transaction.type == 'transferencia'
+    ) {
       if (transaction.accountId != null) {
         await db.rawUpdate(
           '''
@@ -214,8 +286,10 @@ class DatabaseHelper {
         );
       }
 
-      if (transaction.destinationAccountId !=
-          null) {
+      if (
+        transaction.destinationAccountId !=
+            null
+      ) {
         await db.rawUpdate(
           '''
           UPDATE accounts
@@ -239,7 +313,6 @@ class DatabaseHelper {
     DatabaseExecutor db,
     TransactionModel transaction,
   ) async {
-    // INGRESO
     if (transaction.type == 'ingreso') {
       if (transaction.accountId != null) {
         await db.rawUpdate(
@@ -254,10 +327,7 @@ class DatabaseHelper {
           ],
         );
       }
-    }
-
-    // GASTO
-    else if (transaction.type == 'gasto') {
+    } else if (transaction.type == 'gasto') {
       if (transaction.accountId != null) {
         await db.rawUpdate(
           '''
@@ -271,11 +341,9 @@ class DatabaseHelper {
           ],
         );
       }
-    }
-
-    // TRANSFERENCIA
-    else if (transaction.type ==
-        'transferencia') {
+    } else if (
+      transaction.type == 'transferencia'
+    ) {
       if (transaction.accountId != null) {
         await db.rawUpdate(
           '''
@@ -290,8 +358,10 @@ class DatabaseHelper {
         );
       }
 
-      if (transaction.destinationAccountId !=
-          null) {
+      if (
+        transaction.destinationAccountId !=
+            null
+      ) {
         await db.rawUpdate(
           '''
           UPDATE accounts
@@ -358,11 +428,13 @@ class DatabaseHelper {
   }
 
   // ============================================================
-  // OBTENER UN MOVIMIENTO
+  // OBTENER MOVIMIENTO POR ID
   // ============================================================
 
   Future<TransactionModel?>
-      getTransactionById(int id) async {
+      getTransactionById(
+    int id,
+  ) async {
     final db = await database;
 
     final result = await db.query(
@@ -382,7 +454,7 @@ class DatabaseHelper {
   }
 
   // ============================================================
-  // EDITAR MOVIMIENTO
+  // ACTUALIZAR MOVIMIENTO
   // ============================================================
 
   Future<int> updateTransaction(
@@ -396,7 +468,8 @@ class DatabaseHelper {
 
     return await db.transaction(
       (txn) async {
-        final result = await txn.query(
+        final result =
+            await txn.query(
           'transactions',
           where: 'id = ?',
           whereArgs: [transaction.id],
@@ -412,13 +485,11 @@ class DatabaseHelper {
           result.first,
         );
 
-        // Primero deshacemos el movimiento anterior.
         await _reverseTransaction(
           txn,
           oldTransaction,
         );
 
-        // Actualizamos el movimiento.
         final updatedRows =
             await txn.update(
           'transactions',
@@ -427,7 +498,6 @@ class DatabaseHelper {
           whereArgs: [transaction.id],
         );
 
-        // Aplicamos el nuevo movimiento.
         await _applyTransaction(
           txn,
           transaction,
@@ -449,7 +519,8 @@ class DatabaseHelper {
 
     return await db.transaction(
       (txn) async {
-        final result = await txn.query(
+        final result =
+            await txn.query(
           'transactions',
           where: 'id = ?',
           whereArgs: [id],
@@ -465,19 +536,488 @@ class DatabaseHelper {
           result.first,
         );
 
-        // Primero revertimos el efecto
-        // sobre las cuentas.
         await _reverseTransaction(
           txn,
           transaction,
         );
 
-        // Después eliminamos el movimiento.
         return await txn.delete(
           'transactions',
           where: 'id = ?',
           whereArgs: [id],
         );
+      },
+    );
+  }
+
+  // ============================================================
+  // TARJETAS
+  // ============================================================
+
+  Future<int> insertCreditCard(
+    CreditCard card,
+  ) async {
+    final db = await database;
+
+    return await db.insert(
+      'credit_cards',
+      card.toMap(),
+      conflictAlgorithm:
+          ConflictAlgorithm.replace,
+    );
+  }
+
+  // ============================================================
+  // OBTENER TARJETAS
+  // ============================================================
+
+  Future<List<CreditCard>>
+      getCreditCards() async {
+    final db = await database;
+
+    final result = await db.query(
+      'credit_cards',
+      orderBy: 'id ASC',
+    );
+
+    return result
+        .map(
+          (map) =>
+              CreditCard.fromMap(map),
+        )
+        .toList();
+  }
+
+  // ============================================================
+  // OBTENER TARJETA
+  // ============================================================
+
+  Future<CreditCard?>
+      getCreditCardById(
+    int id,
+  ) async {
+    final db = await database;
+
+    final result = await db.query(
+      'credit_cards',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+
+    if (result.isEmpty) {
+      return null;
+    }
+
+    return CreditCard.fromMap(
+      result.first,
+    );
+  }
+
+  // ============================================================
+  // ACTUALIZAR TARJETA
+  // ============================================================
+
+  Future<int> updateCreditCard(
+    CreditCard card,
+  ) async {
+    if (card.id == null) {
+      return 0;
+    }
+
+    final db = await database;
+
+    return await db.update(
+      'credit_cards',
+      card.toMap(),
+      where: 'id = ?',
+      whereArgs: [card.id],
+    );
+  }
+
+  // ============================================================
+  // ELIMINAR TARJETA
+  // ============================================================
+
+  Future<int> deleteCreditCard(
+    int id,
+  ) async {
+    final db = await database;
+
+    return await db.delete(
+      'credit_cards',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // ============================================================
+  // INSERTAR COMPRA
+  // ============================================================
+
+  Future<int> insertCreditCardPurchase(
+    CreditCardPurchase purchase,
+  ) async {
+    final db = await database;
+
+    return await db.transaction(
+      (txn) async {
+        final purchaseId =
+            await txn.insert(
+          'credit_card_purchases',
+          purchase.toMap(),
+          conflictAlgorithm:
+              ConflictAlgorithm.replace,
+        );
+
+        await txn.rawUpdate(
+          '''
+          UPDATE credit_cards
+          SET used_amount =
+              used_amount + ?
+          WHERE id = ?
+          ''',
+          [
+            purchase.remainingAmount,
+            purchase.creditCardId,
+          ],
+        );
+
+        return purchaseId;
+      },
+    );
+  }
+
+  // ============================================================
+  // OBTENER TODAS LAS COMPRAS
+  // ============================================================
+
+  Future<List<CreditCardPurchase>>
+      getCreditCardPurchases() async {
+    final db = await database;
+
+    final result =
+        await db.query(
+      'credit_card_purchases',
+      orderBy:
+          'purchase_date DESC',
+    );
+
+    return result
+        .map(
+          (map) =>
+              CreditCardPurchase.fromMap(
+            map,
+          ),
+        )
+        .toList();
+  }
+
+  // ============================================================
+  // OBTENER COMPRAS DE UNA TARJETA
+  // ============================================================
+
+  Future<List<CreditCardPurchase>>
+      getPurchasesByCreditCard(
+    int creditCardId,
+  ) async {
+    final db = await database;
+
+    final result =
+        await db.query(
+      'credit_card_purchases',
+      where:
+          'credit_card_id = ?',
+      whereArgs: [
+        creditCardId,
+      ],
+      orderBy:
+          'purchase_date DESC',
+    );
+
+    return result
+        .map(
+          (map) =>
+              CreditCardPurchase.fromMap(
+            map,
+          ),
+        )
+        .toList();
+  }
+
+  // ============================================================
+  // OBTENER COMPRA
+  // ============================================================
+
+  Future<CreditCardPurchase?>
+      getCreditCardPurchaseById(
+    int id,
+  ) async {
+    final db = await database;
+
+    final result =
+        await db.query(
+      'credit_card_purchases',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+
+    if (result.isEmpty) {
+      return null;
+    }
+
+    return CreditCardPurchase.fromMap(
+      result.first,
+    );
+  }
+
+  // ============================================================
+  // ACTUALIZAR COMPRA
+  // ============================================================
+
+  Future<int> updateCreditCardPurchase(
+    CreditCardPurchase purchase,
+  ) async {
+    if (purchase.id == null) {
+      return 0;
+    }
+
+    final db = await database;
+
+    return await db.transaction(
+      (txn) async {
+        final result =
+            await txn.query(
+          'credit_card_purchases',
+          where: 'id = ?',
+          whereArgs: [
+            purchase.id,
+          ],
+          limit: 1,
+        );
+
+        if (result.isEmpty) {
+          return 0;
+        }
+
+        final oldPurchase =
+            CreditCardPurchase.fromMap(
+          result.first,
+        );
+
+        if (oldPurchase.creditCardId !=
+            purchase.creditCardId) {
+          await txn.rawUpdate(
+            '''
+            UPDATE credit_cards
+            SET used_amount =
+                used_amount - ?
+            WHERE id = ?
+            ''',
+            [
+              oldPurchase.remainingAmount,
+              oldPurchase.creditCardId,
+            ],
+          );
+
+          await txn.rawUpdate(
+            '''
+            UPDATE credit_cards
+            SET used_amount =
+                used_amount + ?
+            WHERE id = ?
+            ''',
+            [
+              purchase.remainingAmount,
+              purchase.creditCardId,
+            ],
+          );
+        } else {
+          final difference =
+              purchase.remainingAmount -
+                  oldPurchase.remainingAmount;
+
+          await txn.rawUpdate(
+            '''
+            UPDATE credit_cards
+            SET used_amount =
+                used_amount + ?
+            WHERE id = ?
+            ''',
+            [
+              difference,
+              purchase.creditCardId,
+            ],
+          );
+        }
+
+        return await txn.update(
+          'credit_card_purchases',
+          purchase.toMap(),
+          where: 'id = ?',
+          whereArgs: [purchase.id],
+        );
+      },
+    );
+  }
+
+  // ============================================================
+  // ELIMINAR COMPRA
+  // ============================================================
+
+  Future<int> deleteCreditCardPurchase(
+    int id,
+  ) async {
+    final db = await database;
+
+    return await db.transaction(
+      (txn) async {
+        final result =
+            await txn.query(
+          'credit_card_purchases',
+          where: 'id = ?',
+          whereArgs: [id],
+          limit: 1,
+        );
+
+        if (result.isEmpty) {
+          return 0;
+        }
+
+        final purchase =
+            CreditCardPurchase.fromMap(
+          result.first,
+        );
+
+        await txn.rawUpdate(
+          '''
+          UPDATE credit_cards
+          SET used_amount =
+              used_amount - ?
+          WHERE id = ?
+          ''',
+          [
+            purchase.remainingAmount,
+            purchase.creditCardId,
+          ],
+        );
+
+        return await txn.delete(
+          'credit_card_purchases',
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      },
+    );
+  }
+
+  // ============================================================
+  // REGISTRAR PAGO DE UNA COMPRA
+  // ============================================================
+
+  Future<int> registerCreditCardPayment({
+    required int purchaseId,
+    required double paymentAmount,
+  }) async {
+    if (paymentAmount <= 0) {
+      return 0;
+    }
+
+    final db = await database;
+
+    return await db.transaction(
+      (txn) async {
+        // ------------------------------------------------------
+        // OBTENER COMPRA
+        // ------------------------------------------------------
+
+        final result =
+            await txn.query(
+          'credit_card_purchases',
+          where: 'id = ?',
+          whereArgs: [
+            purchaseId,
+          ],
+          limit: 1,
+        );
+
+        if (result.isEmpty) {
+          return 0;
+        }
+
+        final purchase =
+            CreditCardPurchase.fromMap(
+          result.first,
+        );
+
+        // ------------------------------------------------------
+        // VERIFICAR SALDO PENDIENTE
+        // ------------------------------------------------------
+
+        final remaining =
+            purchase.remainingAmount;
+
+        if (remaining <= 0) {
+          return 0;
+        }
+
+        // ------------------------------------------------------
+        // NO PAGAR MÁS DE LO PENDIENTE
+        // ------------------------------------------------------
+
+        final amountToPay =
+            paymentAmount > remaining
+                ? remaining
+                : paymentAmount;
+
+        // ------------------------------------------------------
+        // NUEVO VALOR PAGADO
+        // ------------------------------------------------------
+
+        final newPaidAmount =
+            purchase.paidAmount +
+                amountToPay;
+
+        // ------------------------------------------------------
+        // ACTUALIZAR COMPRA
+        // ------------------------------------------------------
+
+        await txn.update(
+          'credit_card_purchases',
+          {
+            'paid_amount':
+                newPaidAmount,
+          },
+          where: 'id = ?',
+          whereArgs: [
+            purchaseId,
+          ],
+        );
+
+        // ------------------------------------------------------
+        // REDUCIR CUPO UTILIZADO
+        // ------------------------------------------------------
+
+        await txn.rawUpdate(
+          '''
+          UPDATE credit_cards
+          SET used_amount =
+              CASE
+                WHEN used_amount - ? < 0
+                THEN 0
+                ELSE used_amount - ?
+              END
+          WHERE id = ?
+          ''',
+          [
+            amountToPay,
+            amountToPay,
+            purchase.creditCardId,
+          ],
+        );
+
+        return 1;
       },
     );
   }
