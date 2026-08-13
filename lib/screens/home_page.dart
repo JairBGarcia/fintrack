@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'pau_page.dart';
 import '../database/database_helper.dart';
 import '../models/account.dart';
 import '../models/credit_card.dart';
@@ -446,6 +447,27 @@ class _HomePageState
                     FontWeight.bold,
               ),
             ),
+
+            SizedBox(
+  width: double.infinity,
+  child: FilledButton.icon(
+    onPressed: () {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              const PauPage(),
+        ),
+      );
+    },
+    icon: const Icon(
+      Icons.auto_awesome,
+    ),
+    label: const Text(
+      'Hablar con Pau',
+    ),
+  ),
+),
 
             const SizedBox(
               height: 20,

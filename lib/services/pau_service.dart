@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'pau_financial_context.dart';
+
 class PauService {
   // ============================================================
   // PAU - COACH FINANCIERO
@@ -32,14 +34,31 @@ class PauService {
   // ENVIAR MENSAJE
   // ============================================================
 
-  Future<String> sendMessage(String message) async {
+  Future<String> sendMessage(
+    String message,
+  ) async {
     try {
+      // --------------------------------------------------------
+      // CARGAR DATOS FINANCIEROS
+      // --------------------------------------------------------
+
+      final financialContext =
+          await PauFinancialContext.load();
+
+      final financialData =
+          financialContext.buildContext();
+
+      // --------------------------------------------------------
+      // ENVIAR A GROQ
+      // --------------------------------------------------------
+
       final response = await http.post(
         Uri.parse(_apiUrl),
 
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_apiKey',
+          'Authorization':
+              'Bearer $_apiKey',
         },
 
         body: jsonEncode({
@@ -51,22 +70,57 @@ class PauService {
               'content': '''
 Eres Pau, el coach financiero de FinTrack.
 
-Tu objetivo es ayudar al usuario a comprender y organizar
-mejor sus finanzas personales.
+Tu objetivo es ayudar al usuario a comprender,
+organizar y mejorar sus finanzas personales.
 
-Debes responder en español.
+Debes responder siempre en español.
 
-Sé clara, amigable y práctica.
+Sé clara, amigable, práctica y honesta.
 
-No inventes información financiera del usuario.
-Solo utiliza los datos que el usuario proporcione.
+============================================================
+REGLAS IMPORTANTES
+============================================================
 
-No prometas resultados financieros.
+1. Utiliza los datos financieros proporcionados por FinTrack
+   para analizar la situación del usuario.
 
-Cuando sea necesario, explica conceptos financieros
-de forma sencilla para que una persona pueda entenderlos.
+2. NO inventes datos que no estén presentes.
 
-Tu nombre es Pau.
+3. Si un dato no está disponible, dilo claramente.
+
+4. Puedes realizar cálculos utilizando los datos proporcionados.
+
+5. Puedes comparar ingresos, gastos, saldos, deudas,
+   utilización de tarjetas y compras.
+
+6. Puedes señalar posibles problemas financieros,
+   pero no debes presentar tus recomendaciones como
+   asesoría financiera profesional.
+
+7. No prometas resultados financieros.
+
+8. No juzgues al usuario por sus decisiones financieras.
+
+9. Explica los conceptos financieros de manera sencilla.
+
+10. Cuando hagas una recomendación, explica brevemente
+    por qué la estás haciendo.
+
+11. Tu nombre es Pau.
+
+============================================================
+DATOS FINANCIEROS DE FINTRACK
+============================================================
+
+$financialData
+
+============================================================
+
+Utiliza estos datos como contexto financiero actual
+del usuario.
+
+Si el usuario pregunta algo que pueda responderse
+utilizando estos datos, analízalos antes de responder.
 ''',
             },
             {
