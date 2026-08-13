@@ -3,12 +3,14 @@ class Account {
   final String name;
   final String type;
   final double balance;
+  final bool isActive;
 
   Account({
     this.id,
     required this.name,
     required this.type,
     required this.balance,
+    this.isActive = true,
   });
 
   // ============================================================
@@ -21,6 +23,7 @@ class Account {
       'name': name,
       'type': type,
       'balance': balance,
+      'is_active': isActive ? 1 : 0,
     };
   }
 
@@ -36,6 +39,8 @@ class Account {
       name: map['name'] as String,
       type: map['type'] as String,
       balance: (map['balance'] as num).toDouble(),
+      isActive:
+          (map['is_active'] as int? ?? 1) == 1,
     );
   }
 
@@ -48,12 +53,14 @@ class Account {
     String? name,
     String? type,
     double? balance,
+    bool? isActive,
   }) {
     return Account(
       id: id ?? this.id,
       name: name ?? this.name,
       type: type ?? this.type,
       balance: balance ?? this.balance,
+      isActive: isActive ?? this.isActive,
     );
   }
 }

@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 
-import 'pau_page.dart';
 import '../database/database_helper.dart';
 import '../models/account.dart';
 import '../models/credit_card.dart';
 import '../utils/currency_formatter.dart';
+
+import 'add_account_page.dart';
 import 'add_transaction_page.dart';
 import 'transactions_page.dart';
 import 'credit_cards_page.dart';
+import 'pau_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -17,8 +19,7 @@ class HomePage extends StatefulWidget {
       _HomePageState();
 }
 
-class _HomePageState
-    extends State<HomePage> {
+class _HomePageState extends State<HomePage> {
   List<Account> accounts = [];
   List<CreditCard> creditCards = [];
 
@@ -35,12 +36,10 @@ class _HomePageState
 
   Future<void> loadData() async {
     final accountsResult =
-        await DatabaseHelper.instance
-            .getAccounts();
+        await DatabaseHelper.instance.getAccounts();
 
     final cardsResult =
-        await DatabaseHelper.instance
-            .getCreditCards();
+        await DatabaseHelper.instance.getCreditCards();
 
     if (!mounted) return;
 
@@ -48,6 +47,164 @@ class _HomePageState
       accounts = accountsResult;
       creditCards = cardsResult;
     });
+  }
+
+  // ============================================================
+  // AGREGAR CUENTA
+  // ============================================================
+
+  Future<void> openAddAccount() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            const AddAccountPage(),
+      ),
+    );
+
+    await loadData();
+  }
+
+  // ============================================================
+  // CERRAR CUENTA
+  // ============================================================
+
+  Future<void> closeAccount(
+    Account account,
+  ) async {
+    if (account.id == null) {
+      return;
+    }
+
+    final shouldClose =
+        await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text(
+            'Cerrar cuenta',
+          ),
+          content: Text(
+            '¿Seguro que deseas cerrar la cuenta "${account.name}"?\n\n'
+            'La cuenta dejará de aparecer entre tus cuentas activas, '
+            'pero sus movimientos se conservarán.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(
+                  context,
+                  false,
+                );
+              },
+              child: const Text(
+                'Cancelar',
+              ),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(
+                  context,
+                  true,
+                );
+              },
+              child: const Text(
+                'Cerrar cuenta',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldClose != true) {
+      return;
+    }
+
+    await DatabaseHelper.instance
+        .closeAccount(account.id!);
+
+    await loadData();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+        .showSnackBar(
+      SnackBar(
+        content: Text(
+          'La cuenta "${account.name}" fue cerrada.',
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // MENÚ DE CUENTA
+  // ============================================================
+
+  Future<void> showAccountOptions(
+    Account account,
+  ) async {
+    if (account.id == null) {
+      return;
+    }
+
+    await showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize:
+                MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(
+                  Icons.account_balance_wallet,
+                ),
+                title: Text(
+                  account.name,
+                  style:
+                      const TextStyle(
+                    fontWeight:
+                        FontWeight.bold,
+                  ),
+                ),
+                subtitle: Text(
+                  account.type,
+                ),
+              ),
+
+              const Divider(),
+
+              ListTile(
+                leading: const Icon(
+                  Icons.archive_outlined,
+                ),
+                title: const Text(
+                  'Cerrar cuenta',
+                ),
+                subtitle: const Text(
+                  'Conservar sus movimientos históricos',
+                ),
+                onTap: () {
+                  Navigator.pop(
+                    context,
+                  );
+
+                  closeAccount(
+                    account,
+                  );
+                },
+              ),
+
+              const SizedBox(
+                height: 8,
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   // ============================================================
@@ -119,6 +276,22 @@ class _HomePageState
   }
 
   // ============================================================
+  // HABLAR CON PAU
+  // ============================================================
+
+  Future<void> openPau() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            const PauPage(),
+      ),
+    );
+
+    await loadData();
+  }
+
+  // ============================================================
   // COLOR SEGÚN UTILIZACIÓN
   // ============================================================
 
@@ -153,35 +326,32 @@ class _HomePageState
     );
 
     return Card(
-      margin: const EdgeInsets.only(
+      margin:
+          const EdgeInsets.only(
         bottom: 12,
       ),
-
       child: InkWell(
         borderRadius:
-            BorderRadius.circular(12),
-
-        onTap: openCreditCards,
-
+            BorderRadius.circular(
+          12,
+        ),
+        onTap:
+            openCreditCards,
         child: Padding(
           padding:
-              const EdgeInsets.all(16),
-
+              const EdgeInsets.all(
+            16,
+          ),
           child: Column(
             crossAxisAlignment:
-                CrossAxisAlignment.start,
-
+                CrossAxisAlignment
+                    .start,
             children: [
-              // ------------------------------------------------
-              // NOMBRE
-              // ------------------------------------------------
-
               Row(
                 children: [
                   Container(
                     width: 42,
                     height: 42,
-
                     decoration:
                         BoxDecoration(
                       color: Theme.of(
@@ -189,13 +359,12 @@ class _HomePageState
                       )
                           .colorScheme
                           .primaryContainer,
-
                       borderRadius:
-                          BorderRadius.circular(
+                          BorderRadius
+                              .circular(
                         12,
                       ),
                     ),
-
                     child: Icon(
                       Icons.credit_card,
                       color: Theme.of(
@@ -215,27 +384,24 @@ class _HomePageState
                       crossAxisAlignment:
                           CrossAxisAlignment
                               .start,
-
                       children: [
                         Text(
                           card.name,
-
                           style:
                               const TextStyle(
                             fontSize: 16,
                             fontWeight:
-                                FontWeight.bold,
+                                FontWeight
+                                    .bold,
                           ),
                         ),
-
                         const SizedBox(
                           height: 2,
                         ),
-
                         Text(
                           card.bank,
-
-                          style: TextStyle(
+                          style:
+                              TextStyle(
                             color: Theme.of(
                               context,
                             )
@@ -262,28 +428,25 @@ class _HomePageState
                 height: 16,
               ),
 
-              // ------------------------------------------------
-              // CUPOS
-              // ------------------------------------------------
-
               Row(
                 children: [
                   Expanded(
-                    child: _buildCardAmount(
+                    child:
+                        _buildCardAmount(
                       'Cupo total',
                       card.creditLimit,
                     ),
                   ),
-
                   Expanded(
-                    child: _buildCardAmount(
+                    child:
+                        _buildCardAmount(
                       'Utilizado',
                       card.usedAmount,
                     ),
                   ),
-
                   Expanded(
-                    child: _buildCardAmount(
+                    child:
+                        _buildCardAmount(
                       'Disponible',
                       card.availableCredit,
                     ),
@@ -295,28 +458,22 @@ class _HomePageState
                 height: 14,
               ),
 
-              // ------------------------------------------------
-              // BARRA
-              // ------------------------------------------------
-
               ClipRRect(
                 borderRadius:
-                    BorderRadius.circular(
+                    BorderRadius
+                        .circular(
                   10,
                 ),
-
                 child:
                     LinearProgressIndicator(
                   value: usage,
                   minHeight: 7,
-
                   backgroundColor:
                       Theme.of(
                     context,
                   )
-                      .colorScheme
-                      .surfaceContainerHighest,
-
+                          .colorScheme
+                          .surfaceContainerHighest,
                   color: usageColor,
                 ),
               ),
@@ -329,22 +486,25 @@ class _HomePageState
                 children: [
                   Text(
                     '${card.usagePercentage.toStringAsFixed(1)}% utilizado',
-
-                    style: TextStyle(
+                    style:
+                        TextStyle(
                       fontSize: 12,
                       fontWeight:
-                          FontWeight.w600,
-                      color: usageColor,
+                          FontWeight
+                              .w600,
+                      color:
+                          usageColor,
                     ),
                   ),
 
                   const Spacer(),
 
-                  if (card.cutoffDay != null)
+                  if (card.cutoffDay !=
+                      null)
                     Text(
                       'Corte: día ${card.cutoffDay}',
-
-                      style: TextStyle(
+                      style:
+                          TextStyle(
                         fontSize: 12,
                         color: Theme.of(
                           context,
@@ -372,13 +532,13 @@ class _HomePageState
   ) {
     return Column(
       crossAxisAlignment:
-          CrossAxisAlignment.start,
-
+          CrossAxisAlignment
+              .start,
       children: [
         Text(
           title,
-
-          style: TextStyle(
+          style:
+              TextStyle(
             fontSize: 11,
             color: Theme.of(
               context,
@@ -393,8 +553,9 @@ class _HomePageState
         ),
 
         Text(
-          formatCurrency(value),
-
+          formatCurrency(
+            value,
+          ),
           style:
               const TextStyle(
             fontSize: 13,
@@ -418,8 +579,8 @@ class _HomePageState
       appBar: AppBar(
         title: const Text(
           'FinTrack',
-
-          style: TextStyle(
+          style:
+              TextStyle(
             fontWeight:
                 FontWeight.bold,
           ),
@@ -431,7 +592,9 @@ class _HomePageState
 
         child: ListView(
           padding:
-              const EdgeInsets.all(20),
+              const EdgeInsets.all(
+            20,
+          ),
 
           children: [
             // ==================================================
@@ -440,34 +603,13 @@ class _HomePageState
 
             const Text(
               'Resumen financiero',
-
-              style: TextStyle(
+              style:
+                  TextStyle(
                 fontSize: 24,
                 fontWeight:
                     FontWeight.bold,
               ),
             ),
-
-            SizedBox(
-  width: double.infinity,
-  child: FilledButton.icon(
-    onPressed: () {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) =>
-              const PauPage(),
-        ),
-      );
-    },
-    icon: const Icon(
-      Icons.auto_awesome,
-    ),
-    label: const Text(
-      'Hablar con Pau',
-    ),
-  ),
-),
 
             const SizedBox(
               height: 20,
@@ -480,18 +622,18 @@ class _HomePageState
             Card(
               child: Padding(
                 padding:
-                    const EdgeInsets.all(20),
-
+                    const EdgeInsets.all(
+                  20,
+                ),
                 child: Column(
                   crossAxisAlignment:
                       CrossAxisAlignment
                           .start,
-
                   children: [
                     const Text(
                       'Patrimonio total',
-
-                      style: TextStyle(
+                      style:
+                          TextStyle(
                         fontSize: 16,
                       ),
                     ),
@@ -504,7 +646,6 @@ class _HomePageState
                       formatCurrency(
                         totalMoney,
                       ),
-
                       style:
                           const TextStyle(
                         fontSize: 32,
@@ -525,14 +666,33 @@ class _HomePageState
             // MIS CUENTAS
             // ==================================================
 
-            const Text(
-              'Mis cuentas',
+            Row(
+              mainAxisAlignment:
+                  MainAxisAlignment
+                      .spaceBetween,
+              children: [
+                const Text(
+                  'Mis cuentas',
+                  style:
+                      TextStyle(
+                    fontSize: 20,
+                    fontWeight:
+                        FontWeight.bold,
+                  ),
+                ),
 
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight:
-                    FontWeight.bold,
-              ),
+                IconButton(
+                  onPressed:
+                      openAddAccount,
+                  tooltip:
+                      'Agregar cuenta',
+                  icon:
+                      const Icon(
+                    Icons
+                        .add_circle_outline,
+                  ),
+                ),
+              ],
             ),
 
             const SizedBox(
@@ -540,59 +700,129 @@ class _HomePageState
             ),
 
             if (accounts.isEmpty)
-              const Card(
-                child: ListTile(
-                  leading: Icon(
-                    Icons.account_balance,
+              Card(
+                child:
+                    InkWell(
+                  borderRadius:
+                      BorderRadius
+                          .circular(
+                    12,
                   ),
+                  onTap:
+                      openAddAccount,
+                  child:
+                      const Padding(
+                    padding:
+                        EdgeInsets.all(
+                      16,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons
+                              .account_balance_wallet_outlined,
+                          size: 36,
+                        ),
 
-                  title: Text(
-                    'Todavía no tienes cuentas',
-                  ),
+                        SizedBox(
+                          width: 14,
+                        ),
 
-                  subtitle: Text(
-                    'Agrega Lulo, Bancolombia, efectivo, etc.',
+                        Expanded(
+                          child:
+                              Column(
+                            crossAxisAlignment:
+                                CrossAxisAlignment
+                                    .start,
+                            children: [
+                              Text(
+                                'Todavía no tienes cuentas',
+                                style:
+                                    TextStyle(
+                                  fontWeight:
+                                      FontWeight.bold,
+                                  fontSize:
+                                      16,
+                                ),
+                              ),
+
+                              SizedBox(
+                                height: 4,
+                              ),
+
+                              Text(
+                                'Toca aquí para agregar Lulo, Bancolombia, efectivo, etc.',
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        Icon(
+                          Icons
+                              .chevron_right,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               )
             else
               ...accounts.map(
-                (account) => Card(
-                  child: ListTile(
-                    leading:
-                        const Icon(
-                      Icons
-                          .account_balance_wallet,
-                    ),
+                (account) {
+                  return Card(
+                    child:
+                        InkWell(
+                      borderRadius:
+                          BorderRadius
+                              .circular(
+                        12,
+                      ),
+                      onLongPress:
+                          () =>
+                              showAccountOptions(
+                        account,
+                      ),
+                      child:
+                          ListTile(
+                        leading:
+                            const Icon(
+                          Icons
+                              .account_balance_wallet,
+                        ),
 
-                    title: Text(
-                      account.name,
+                        title:
+                            Text(
+                          account.name,
+                          style:
+                              const TextStyle(
+                            fontWeight:
+                                FontWeight.bold,
+                          ),
+                        ),
 
-                      style:
-                          const TextStyle(
-                        fontWeight:
-                            FontWeight.bold,
+                        subtitle:
+                            Text(
+                          account.type,
+                        ),
+
+                        trailing:
+                            Text(
+                          formatCurrency(
+                            account
+                                .balance,
+                          ),
+                          style:
+                              const TextStyle(
+                            fontSize:
+                                17,
+                            fontWeight:
+                                FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ),
-
-                    subtitle: Text(
-                      account.type,
-                    ),
-
-                    trailing: Text(
-                      formatCurrency(
-                        account.balance,
-                      ),
-
-                      style:
-                          const TextStyle(
-                        fontSize: 17,
-                        fontWeight:
-                            FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
+                  );
+                },
               ),
 
             // ==================================================
@@ -605,8 +835,8 @@ class _HomePageState
 
             const Text(
               'Mis tarjetas',
-
-              style: TextStyle(
+              style:
+                  TextStyle(
                 fontSize: 20,
                 fontWeight:
                     FontWeight.bold,
@@ -619,24 +849,29 @@ class _HomePageState
 
             if (creditCards.isEmpty)
               Card(
-                child: ListTile(
-                  leading: const Icon(
+                child:
+                    ListTile(
+                  leading:
+                      const Icon(
                     Icons.credit_card,
                   ),
 
-                  title: const Text(
+                  title:
+                      const Text(
                     'Todavía no tienes tarjetas',
                   ),
 
-                  subtitle: const Text(
+                  subtitle:
+                      const Text(
                     'Agrega una tarjeta de crédito para comenzar a controlarla.',
                   ),
 
-                  trailing: IconButton(
+                  trailing:
+                      IconButton(
                     onPressed:
                         openCreditCards,
-
-                    icon: const Icon(
+                    icon:
+                        const Icon(
                       Icons.add,
                     ),
                   ),
@@ -652,18 +887,20 @@ class _HomePageState
               ),
 
               SizedBox(
-                width: double.infinity,
-
+                width:
+                    double.infinity,
                 child:
-                    OutlinedButton.icon(
+                    OutlinedButton
+                        .icon(
                   onPressed:
                       openCreditCards,
-
-                  icon: const Icon(
-                    Icons.credit_card,
+                  icon:
+                      const Icon(
+                    Icons
+                        .credit_card,
                   ),
-
-                  label: const Text(
+                  label:
+                      const Text(
                     'Ver todas las tarjetas',
                   ),
                 ),
@@ -675,22 +912,123 @@ class _HomePageState
             ),
 
             // ==================================================
+            // PAU
+            // ==================================================
+
+            Card(
+              child:
+                  InkWell(
+                borderRadius:
+                    BorderRadius
+                        .circular(
+                  12,
+                ),
+                onTap:
+                    openPau,
+                child:
+                    Padding(
+                  padding:
+                      const EdgeInsets
+                          .all(
+                    16,
+                  ),
+                  child:
+                      Row(
+                    children: [
+                      Container(
+                        width: 52,
+                        height: 52,
+                        decoration:
+                            BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          )
+                              .colorScheme
+                              .primaryContainer,
+                          borderRadius:
+                              BorderRadius
+                                  .circular(
+                            14,
+                          ),
+                        ),
+                        child:
+                            Icon(
+                          Icons
+                              .smart_toy_outlined,
+                          color: Theme.of(
+                            context,
+                          )
+                              .colorScheme
+                              .onPrimaryContainer,
+                          size: 28,
+                        ),
+                      ),
+
+                      const SizedBox(
+                        width: 14,
+                      ),
+
+                      const Expanded(
+                        child:
+                            Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment
+                                  .start,
+                          children: [
+                            Text(
+                              'Hablar con Pau',
+                              style:
+                                  TextStyle(
+                                fontSize:
+                                    17,
+                                fontWeight:
+                                    FontWeight
+                                        .bold,
+                              ),
+                            ),
+
+                            SizedBox(
+                              height: 4,
+                            ),
+
+                            Text(
+                              'Tu coach financiero personal',
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const Icon(
+                        Icons
+                            .chevron_right,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            const SizedBox(
+              height: 28,
+            ),
+
+            // ==================================================
             // AGREGAR MOVIMIENTO
             // ==================================================
 
             SizedBox(
-              width: double.infinity,
-
+              width:
+                  double.infinity,
               child:
                   FilledButton.icon(
                 onPressed:
                     openAddTransaction,
-
-                icon: const Icon(
+                icon:
+                    const Icon(
                   Icons.add,
                 ),
-
-                label: const Text(
+                label:
+                    const Text(
                   'Agregar movimiento',
                 ),
               ),
@@ -705,18 +1043,19 @@ class _HomePageState
             // ==================================================
 
             SizedBox(
-              width: double.infinity,
-
+              width:
+                  double.infinity,
               child:
-                  OutlinedButton.icon(
+                  OutlinedButton
+                      .icon(
                 onPressed:
                     openTransactions,
-
-                icon: const Icon(
+                icon:
+                    const Icon(
                   Icons.history,
                 ),
-
-                label: const Text(
+                label:
+                    const Text(
                   'Ver movimientos',
                 ),
               ),
@@ -731,17 +1070,19 @@ class _HomePageState
             // ==================================================
 
             SizedBox(
-              width: double.infinity,
-
+              width:
+                  double.infinity,
               child:
-                  OutlinedButton.icon(
-                onPressed: loadData,
-
-                icon: const Icon(
+                  OutlinedButton
+                      .icon(
+                onPressed:
+                    loadData,
+                icon:
+                    const Icon(
                   Icons.refresh,
                 ),
-
-                label: const Text(
+                label:
+                    const Text(
                   'Actualizar',
                 ),
               ),

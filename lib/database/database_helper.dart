@@ -38,13 +38,20 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 3,
+
+      // IMPORTANTE:
+      // Antes estaba en 3.
+      // Ahora pasa a 4 para agregar is_active.
+      version: 4,
+
       onConfigure: (db) async {
         await db.execute(
           'PRAGMA foreign_keys = ON',
         );
       },
+
       onCreate: _createDatabase,
+
       onUpgrade: _onUpgrade,
     );
   }
@@ -66,7 +73,8 @@ class DatabaseHelper {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         type TEXT NOT NULL,
-        balance REAL NOT NULL
+        balance REAL NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1
       )
     ''');
 
@@ -142,6 +150,10 @@ class DatabaseHelper {
     int oldVersion,
     int newVersion,
   ) async {
+    // ----------------------------------------------------------
+    // VERSION 3
+    // ----------------------------------------------------------
+
     if (oldVersion < 3) {
       await db.execute('''
         CREATE TABLE credit_cards (
@@ -174,6 +186,18 @@ class DatabaseHelper {
         )
       ''');
     }
+
+    // ----------------------------------------------------------
+    // VERSION 4
+    // CERRAR / REABRIR CUENTAS
+    // ----------------------------------------------------------
+
+    if (oldVersion < 4) {
+      await db.execute('''
+        ALTER TABLE accounts
+        ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1
+      ''');
+    }
   }
 
   // ============================================================
@@ -193,7 +217,33 @@ class DatabaseHelper {
     );
   }
 
+  // ------------------------------------------------------------
+  // OBTENER CUENTAS ACTIVAS
+  // ------------------------------------------------------------
+
   Future<List<Account>> getAccounts() async {
+    final db = await database;
+
+    final result = await db.query(
+      'accounts',
+      where: 'is_active = ?',
+      whereArgs: [1],
+      orderBy: 'id ASC',
+    );
+
+    return result
+        .map(
+          (map) => Account.fromMap(map),
+        )
+        .toList();
+  }
+
+  // ------------------------------------------------------------
+  // OBTENER TODAS LAS CUENTAS
+  // Incluye cerradas.
+  // ------------------------------------------------------------
+
+  Future<List<Account>> getAllAccounts() async {
     final db = await database;
 
     final result = await db.query(
@@ -207,6 +257,31 @@ class DatabaseHelper {
         )
         .toList();
   }
+
+  // ------------------------------------------------------------
+  // OBTENER CUENTAS CERRADAS
+  // ------------------------------------------------------------
+
+  Future<List<Account>> getClosedAccounts() async {
+    final db = await database;
+
+    final result = await db.query(
+      'accounts',
+      where: 'is_active = ?',
+      whereArgs: [0],
+      orderBy: 'id ASC',
+    );
+
+    return result
+        .map(
+          (map) => Account.fromMap(map),
+        )
+        .toList();
+  }
+
+  // ------------------------------------------------------------
+  // OBTENER CUENTA POR ID
+  // ------------------------------------------------------------
 
   Future<Account?> getAccountById(
     int id,
@@ -229,6 +304,10 @@ class DatabaseHelper {
     );
   }
 
+  // ------------------------------------------------------------
+  // ACTUALIZAR CUENTA
+  // ------------------------------------------------------------
+
   Future<int> updateAccount(
     Account account,
   ) async {
@@ -245,6 +324,53 @@ class DatabaseHelper {
       whereArgs: [account.id],
     );
   }
+
+  // ------------------------------------------------------------
+  // CERRAR CUENTA
+  // ------------------------------------------------------------
+
+  Future<int> closeAccount(
+    int id,
+  ) async {
+    final db = await database;
+
+    return await db.update(
+      'accounts',
+      {
+        'is_active': 0,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // ------------------------------------------------------------
+  // REABRIR CUENTA
+  // ------------------------------------------------------------
+
+  Future<int> reopenAccount(
+    int id,
+  ) async {
+    final db = await database;
+
+    return await db.update(
+      'accounts',
+      {
+        'is_active': 1,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // ------------------------------------------------------------
+  // ELIMINAR CUENTA
+  // ------------------------------------------------------------
+  // Se mantiene por compatibilidad.
+  //
+  // IMPORTANTE:
+  // Para cuentas que tengan movimientos es mejor utilizar
+  // closeAccount() en lugar de eliminarla.
 
   Future<int> deleteAccount(
     int id,
@@ -508,13 +634,11 @@ class DatabaseHelper {
           result.first,
         );
 
-        // Primero quitar el efecto anterior.
         await _reverseTransaction(
           txn,
           oldTransaction,
         );
 
-        // Actualizar movimiento.
         final updatedRows =
             await txn.update(
           'transactions',
@@ -527,7 +651,6 @@ class DatabaseHelper {
           return 0;
         }
 
-        // Aplicar el nuevo efecto.
         await _applyTransaction(
           txn,
           transaction,
@@ -566,13 +689,11 @@ class DatabaseHelper {
           result.first,
         );
 
-        // Revertir efecto sobre la cuenta.
         await _reverseTransaction(
           txn,
           transaction,
         );
 
-        // Eliminar movimiento.
         return await txn.delete(
           'transactions',
           where: 'id = ?',
@@ -694,7 +815,6 @@ class DatabaseHelper {
 
     return await db.transaction(
       (txn) async {
-        // Verificar que exista la tarjeta.
         final cardResult =
             await txn.query(
           'credit_cards',
@@ -714,8 +834,6 @@ class DatabaseHelper {
           cardResult.first,
         );
 
-        // No permitir compras superiores
-        // al cupo disponible.
         if (purchase.remainingAmount >
             card.availableCredit) {
           return 0;
@@ -729,7 +847,6 @@ class DatabaseHelper {
               ConflictAlgorithm.replace,
         );
 
-        // Aumentar cupo utilizado.
         await txn.rawUpdate(
           '''
           UPDATE credit_cards
@@ -847,7 +964,6 @@ class DatabaseHelper {
 
     return await db.transaction(
       (txn) async {
-        // Obtener compra anterior.
         final result =
             await txn.query(
           'credit_card_purchases',
@@ -867,10 +983,8 @@ class DatabaseHelper {
           result.first,
         );
 
-        // Si cambió de tarjeta.
         if (oldPurchase.creditCardId !=
             purchase.creditCardId) {
-          // Verificar tarjeta nueva.
           final newCardResult =
               await txn.query(
             'credit_cards',
@@ -890,7 +1004,6 @@ class DatabaseHelper {
             newCardResult.first,
           );
 
-          // Liberar cupo de tarjeta anterior.
           await txn.rawUpdate(
             '''
             UPDATE credit_cards
@@ -909,13 +1022,11 @@ class DatabaseHelper {
             ],
           );
 
-          // Verificar cupo de tarjeta nueva.
           if (purchase.remainingAmount >
               newCard.availableCredit) {
             return 0;
           }
 
-          // Ocupar cupo de tarjeta nueva.
           await txn.rawUpdate(
             '''
             UPDATE credit_cards
@@ -930,7 +1041,6 @@ class DatabaseHelper {
           );
         }
 
-        // Si continúa en la misma tarjeta.
         else {
           final difference =
               purchase.remainingAmount -
@@ -981,7 +1091,6 @@ class DatabaseHelper {
           );
         }
 
-        // Actualizar compra.
         return await txn.update(
           'credit_card_purchases',
           purchase.toMap(),
@@ -1022,7 +1131,6 @@ class DatabaseHelper {
           result.first,
         );
 
-        // Liberar únicamente el saldo pendiente.
         await txn.rawUpdate(
           '''
           UPDATE credit_cards
@@ -1245,10 +1353,6 @@ class DatabaseHelper {
           conflictAlgorithm:
               ConflictAlgorithm.replace,
         );
-
-        // ------------------------------------------------------
-        // ÉXITO
-        // ------------------------------------------------------
 
         return 1;
       },
