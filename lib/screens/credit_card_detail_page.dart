@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../database/database_helper.dart';
+import '../models/account.dart';
 import '../models/credit_card.dart';
 import '../models/credit_card_purchase.dart';
 import '../utils/currency_formatter.dart';
@@ -21,6 +22,7 @@ class CreditCardDetailPage extends StatefulWidget {
 class _CreditCardDetailPageState
     extends State<CreditCardDetailPage> {
   List<CreditCardPurchase> _purchases = [];
+  List<Account> _accounts = [];
 
   bool _isLoading = true;
 
@@ -63,10 +65,12 @@ class _CreditCardDetailPageState
       );
 
       final purchases =
-          await DatabaseHelper.instance
-              .getPurchasesByCreditCard(
+          await DatabaseHelper.instance.getPurchasesByCreditCard(
         _creditCard.id!,
       );
+
+      final accounts =
+          await DatabaseHelper.instance.getAccounts();
 
       if (!mounted) return;
 
@@ -76,6 +80,7 @@ class _CreditCardDetailPageState
         }
 
         _purchases = purchases;
+        _accounts = accounts;
         _isLoading = false;
       });
     } catch (e) {
@@ -96,7 +101,7 @@ class _CreditCardDetailPageState
   }
 
   // ============================================================
-  // COLOR UTILIZACIÓN
+  // COLOR DE UTILIZACIÓN
   // ============================================================
 
   Color _getUsageColor(double percentage) {
@@ -116,12 +121,14 @@ class _CreditCardDetailPageState
   // ============================================================
 
   String _formatDate(DateTime date) {
-    final day = date.day.toString().padLeft(2, '0');
+    final day =
+        date.day.toString().padLeft(2, '0');
 
     final month =
         date.month.toString().padLeft(2, '0');
 
-    final year = date.year.toString();
+    final year =
+        date.year.toString();
 
     return '$day/$month/$year';
   }
@@ -134,7 +141,6 @@ class _CreditCardDetailPageState
     var clean = value.trim();
 
     clean = clean.replaceAll('.', '');
-
     clean = clean.replaceAll(',', '.');
 
     return double.tryParse(clean) ?? 0;
@@ -165,46 +171,63 @@ class _CreditCardDetailPageState
       return;
     }
 
-    final payment = await _showPaymentDialog(
-      purchase,
-    );
+    if (_accounts.isEmpty) {
+      if (!mounted) return;
 
-    if (!mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No tienes cuentas disponibles para realizar el pago.',
+          ),
+        ),
+      );
+
       return;
     }
 
-    if (payment == null) {
+    final payment =
+        await _showPaymentDialog(purchase);
+
+    if (!mounted || payment == null) {
       return;
     }
 
     try {
-      await DatabaseHelper.instance
-          .registerCreditCardPayment(
+      final result =
+          await DatabaseHelper.instance
+              .registerCreditCardPayment(
         purchaseId: purchase.id!,
-        paymentAmount: payment,
+        paymentAmount: payment.amount,
+        accountId: payment.accountId,
       );
 
-      if (!mounted) {
+      if (!mounted) return;
+
+      if (result == 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No se pudo registrar el pago. Verifica el saldo de la cuenta.',
+            ),
+          ),
+        );
+
         return;
       }
 
       await _loadData();
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Pago de ${formatCurrency(payment)} registrado correctamente.',
+            'Pago de ${formatCurrency(payment.amount)} registrado correctamente.',
           ),
         ),
       );
     } catch (e) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -220,15 +243,16 @@ class _CreditCardDetailPageState
   // DIÁLOGO DE PAGO
   // ============================================================
 
-  Future<double?> _showPaymentDialog(
+  Future<_PaymentResult?> _showPaymentDialog(
     CreditCardPurchase purchase,
   ) async {
-    return showDialog<double>(
+    return showDialog<_PaymentResult>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
         return _PaymentDialog(
           purchase: purchase,
+          accounts: _accounts,
           parseAmount: _parseAmount,
         );
       },
@@ -236,14 +260,16 @@ class _CreditCardDetailPageState
   }
 
   // ============================================================
-  // TARJETA RESUMEN
+  // RESUMEN DE TARJETA
   // ============================================================
 
   Widget _buildCardSummary() {
-    final usage = (_creditCard.usagePercentage / 100)
-        .clamp(0.0, 1.0);
+    final usage =
+        (_creditCard.usagePercentage / 100)
+            .clamp(0.0, 1.0);
 
-    final usageColor = _getUsageColor(
+    final usageColor =
+        _getUsageColor(
       _creditCard.usagePercentage,
     );
 
@@ -254,10 +280,6 @@ class _CreditCardDetailPageState
           crossAxisAlignment:
               CrossAxisAlignment.start,
           children: [
-            // --------------------------------------------------
-            // ENCABEZADO
-            // --------------------------------------------------
-
             Row(
               children: [
                 Container(
@@ -310,10 +332,6 @@ class _CreditCardDetailPageState
 
             const SizedBox(height: 24),
 
-            // --------------------------------------------------
-            // CUPO TOTAL
-            // --------------------------------------------------
-
             Text(
               'Cupo total',
               style: TextStyle(
@@ -337,10 +355,6 @@ class _CreditCardDetailPageState
 
             const SizedBox(height: 20),
 
-            // --------------------------------------------------
-            // UTILIZADO / DISPONIBLE
-            // --------------------------------------------------
-
             Row(
               children: [
                 Expanded(
@@ -363,10 +377,6 @@ class _CreditCardDetailPageState
             ),
 
             const SizedBox(height: 20),
-
-            // --------------------------------------------------
-            // BARRA
-            // --------------------------------------------------
 
             ClipRRect(
               borderRadius:
@@ -394,10 +404,6 @@ class _CreditCardDetailPageState
 
             const SizedBox(height: 20),
 
-            // --------------------------------------------------
-            // FECHAS
-            // --------------------------------------------------
-
             Row(
               children: [
                 Expanded(
@@ -424,10 +430,6 @@ class _CreditCardDetailPageState
             ),
 
             const SizedBox(height: 16),
-
-            // --------------------------------------------------
-            // PAGO MÍNIMO
-            // --------------------------------------------------
 
             Container(
               width: double.infinity,
@@ -479,7 +481,7 @@ class _CreditCardDetailPageState
   }
 
   // ============================================================
-  // INFORMACIÓN DINERO
+  // INFORMACIÓN DE DINERO
   // ============================================================
 
   Widget _buildMoneyInfo({
@@ -511,7 +513,7 @@ class _CreditCardDetailPageState
   }
 
   // ============================================================
-  // INFORMACIÓN FECHA
+  // INFORMACIÓN DE FECHA
   // ============================================================
 
   Widget _buildDateInfo({
@@ -583,10 +585,6 @@ class _CreditCardDetailPageState
           crossAxisAlignment:
               CrossAxisAlignment.start,
           children: [
-            // --------------------------------------------------
-            // DESCRIPCIÓN
-            // --------------------------------------------------
-
             Row(
               crossAxisAlignment:
                   CrossAxisAlignment.start,
@@ -659,10 +657,6 @@ class _CreditCardDetailPageState
 
             const SizedBox(height: 16),
 
-            // --------------------------------------------------
-            // INFORMACIÓN
-            // --------------------------------------------------
-
             Row(
               children: [
                 Expanded(
@@ -708,10 +702,6 @@ class _CreditCardDetailPageState
             ),
 
             const SizedBox(height: 16),
-
-            // --------------------------------------------------
-            // PAGADO / PENDIENTE
-            // --------------------------------------------------
 
             Row(
               mainAxisAlignment:
@@ -780,10 +770,6 @@ class _CreditCardDetailPageState
                     .onSurfaceVariant,
               ),
             ),
-
-            // --------------------------------------------------
-            // BOTÓN DE PAGO
-            // --------------------------------------------------
 
             if (!purchase.isPaid) ...[
               const SizedBox(height: 14),
@@ -961,7 +947,7 @@ class _CreditCardDetailPageState
   }
 
   // ============================================================
-  // ITEM RESUMEN
+  // ITEM DE RESUMEN
   // ============================================================
 
   Widget _buildSummaryItem(
@@ -1022,17 +1008,9 @@ class _CreditCardDetailPageState
                 padding:
                     const EdgeInsets.all(16),
                 children: [
-                  // ------------------------------------------------
-                  // INFORMACIÓN TARJETA
-                  // ------------------------------------------------
-
                   _buildCardSummary(),
 
                   const SizedBox(height: 24),
-
-                  // ------------------------------------------------
-                  // TÍTULO COMPRAS
-                  // ------------------------------------------------
 
                   Row(
                     mainAxisAlignment:
@@ -1064,18 +1042,10 @@ class _CreditCardDetailPageState
 
                   const SizedBox(height: 12),
 
-                  // ------------------------------------------------
-                  // RESUMEN
-                  // ------------------------------------------------
-
                   _buildPurchasesSummary(),
 
                   if (_purchases.isNotEmpty)
                     const SizedBox(height: 12),
-
-                  // ------------------------------------------------
-                  // COMPRAS
-                  // ------------------------------------------------
 
                   if (_purchases.isEmpty)
                     Card(
@@ -1146,16 +1116,31 @@ class _CreditCardDetailPageState
 }
 
 // ================================================================
+// RESULTADO DEL PAGO
+// ================================================================
+
+class _PaymentResult {
+  final double amount;
+  final int accountId;
+
+  const _PaymentResult({
+    required this.amount,
+    required this.accountId,
+  });
+}
+
+// ================================================================
 // DIÁLOGO DE PAGO
 // ================================================================
 
 class _PaymentDialog extends StatefulWidget {
   final CreditCardPurchase purchase;
-
+  final List<Account> accounts;
   final double Function(String) parseAmount;
 
   const _PaymentDialog({
     required this.purchase,
+    required this.accounts,
     required this.parseAmount,
   });
 
@@ -1168,13 +1153,21 @@ class _PaymentDialogState
     extends State<_PaymentDialog> {
   late final TextEditingController _controller;
 
+  Account? _selectedAccount;
+
   String? _errorText;
 
   @override
   void initState() {
     super.initState();
 
-    _controller = TextEditingController();
+    _controller =
+        TextEditingController();
+
+    if (widget.accounts.isNotEmpty) {
+      _selectedAccount =
+          widget.accounts.first;
+    }
   }
 
   @override
@@ -1209,7 +1202,33 @@ class _PaymentDialogState
       return;
     }
 
-    Navigator.of(context).pop(amount);
+    if (_selectedAccount == null ||
+        _selectedAccount!.id == null) {
+      setState(() {
+        _errorText =
+            'Selecciona una cuenta.';
+      });
+
+      return;
+    }
+
+    if (_selectedAccount!.balance <
+        amount) {
+      setState(() {
+        _errorText =
+            'La cuenta seleccionada no tiene saldo suficiente.';
+      });
+
+      return;
+    }
+
+    Navigator.of(context).pop(
+      _PaymentResult(
+        amount: amount,
+        accountId:
+            _selectedAccount!.id!,
+      ),
+    );
   }
 
   @override
@@ -1219,53 +1238,159 @@ class _PaymentDialogState
         'Registrar pago',
       ),
 
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          Text(
-            widget.purchase.description,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.purchase.description,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+              ),
             ),
-          ),
 
-          const SizedBox(height: 8),
+            const SizedBox(height: 8),
 
-          Text(
-            'Saldo pendiente: ${formatCurrency(widget.purchase.remainingAmount)}',
-          ),
-
-          const SizedBox(height: 20),
-
-          TextField(
-            controller: _controller,
-            keyboardType:
-                const TextInputType.numberWithOptions(
-              decimal: true,
+            Text(
+              'Saldo pendiente: ${formatCurrency(widget.purchase.remainingAmount)}',
             ),
-            autofocus: true,
-            decoration: InputDecoration(
-              labelText: 'Valor del pago',
-              hintText: 'Ej: 300.000',
-              prefixText: '\$ ',
-              border:
-                  const OutlineInputBorder(),
-              errorText: _errorText,
+
+            const SizedBox(height: 20),
+
+            const Text(
+              '¿De qué cuenta sale el dinero?',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+              ),
             ),
-            onChanged: (_) {
-              if (_errorText != null) {
+
+            const SizedBox(height: 8),
+
+            DropdownButtonFormField<Account>(
+              initialValue:
+                  _selectedAccount,
+              isExpanded: true,
+              decoration:
+                  const InputDecoration(
+                labelText:
+                    'Cuenta de pago',
+                prefixIcon:
+                    Icon(Icons.account_balance),
+                border:
+                    OutlineInputBorder(),
+              ),
+              items:
+                  widget.accounts.map(
+                (account) {
+                  return DropdownMenuItem<Account>(
+                    value: account,
+                    child: Text(
+                      '${account.name} — ${formatCurrency(account.balance)}',
+                      overflow:
+                          TextOverflow.ellipsis,
+                    ),
+                  );
+                },
+              ).toList(),
+              onChanged: (account) {
+                if (account == null) {
+                  return;
+                }
+
                 setState(() {
+                  _selectedAccount =
+                      account;
                   _errorText = null;
                 });
-              }
-            },
-            onSubmitted: (_) {
-              _submit();
-            },
-          ),
-        ],
+              },
+            ),
+
+            const SizedBox(height: 20),
+
+            TextField(
+              controller: _controller,
+              keyboardType:
+                  const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText:
+                    'Valor del pago',
+                hintText:
+                    'Ej: 300.000',
+                prefixText:
+                    '\$ ',
+                border:
+                    const OutlineInputBorder(),
+                errorText:
+                    _errorText,
+              ),
+              onChanged: (_) {
+                if (_errorText != null) {
+                  setState(() {
+                    _errorText = null;
+                  });
+                }
+              },
+              onSubmitted: (_) {
+                _submit();
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            if (_selectedAccount != null)
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.all(12),
+                decoration:
+                    BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest,
+                  borderRadius:
+                      BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.account_balance_wallet,
+                      size: 20,
+                    ),
+
+                    const SizedBox(width: 8),
+
+                    Expanded(
+                      child: Text(
+                        'Saldo disponible',
+                        style: TextStyle(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+
+                    Text(
+                      formatCurrency(
+                        _selectedAccount!
+                            .balance,
+                      ),
+                      style:
+                          const TextStyle(
+                        fontWeight:
+                            FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
 
       actions: [

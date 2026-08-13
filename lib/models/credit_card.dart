@@ -28,8 +28,7 @@ class CreditCard {
   // ============================================================
 
   double get availableCredit {
-    final available =
-        creditLimit - usedAmount;
+    final available = creditLimit - usedAmount;
 
     if (available < 0) {
       return 0;

@@ -208,9 +208,34 @@ class DatabaseHelper {
         .toList();
   }
 
+  Future<Account?> getAccountById(
+    int id,
+  ) async {
+    final db = await database;
+
+    final result = await db.query(
+      'accounts',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+
+    if (result.isEmpty) {
+      return null;
+    }
+
+    return Account.fromMap(
+      result.first,
+    );
+  }
+
   Future<int> updateAccount(
     Account account,
   ) async {
+    if (account.id == null) {
+      return 0;
+    }
+
     final db = await database;
 
     return await db.update(
@@ -255,7 +280,9 @@ class DatabaseHelper {
           ],
         );
       }
-    } else if (transaction.type == 'gasto') {
+    }
+
+    else if (transaction.type == 'gasto') {
       if (transaction.accountId != null) {
         await db.rawUpdate(
           '''
@@ -269,9 +296,9 @@ class DatabaseHelper {
           ],
         );
       }
-    } else if (
-      transaction.type == 'transferencia'
-    ) {
+    }
+
+    else if (transaction.type == 'transferencia') {
       if (transaction.accountId != null) {
         await db.rawUpdate(
           '''
@@ -286,10 +313,7 @@ class DatabaseHelper {
         );
       }
 
-      if (
-        transaction.destinationAccountId !=
-            null
-      ) {
+      if (transaction.destinationAccountId != null) {
         await db.rawUpdate(
           '''
           UPDATE accounts
@@ -327,7 +351,9 @@ class DatabaseHelper {
           ],
         );
       }
-    } else if (transaction.type == 'gasto') {
+    }
+
+    else if (transaction.type == 'gasto') {
       if (transaction.accountId != null) {
         await db.rawUpdate(
           '''
@@ -341,9 +367,9 @@ class DatabaseHelper {
           ],
         );
       }
-    } else if (
-      transaction.type == 'transferencia'
-    ) {
+    }
+
+    else if (transaction.type == 'transferencia') {
       if (transaction.accountId != null) {
         await db.rawUpdate(
           '''
@@ -358,10 +384,7 @@ class DatabaseHelper {
         );
       }
 
-      if (
-        transaction.destinationAccountId !=
-            null
-      ) {
+      if (transaction.destinationAccountId != null) {
         await db.rawUpdate(
           '''
           UPDATE accounts
@@ -485,11 +508,13 @@ class DatabaseHelper {
           result.first,
         );
 
+        // Primero quitar el efecto anterior.
         await _reverseTransaction(
           txn,
           oldTransaction,
         );
 
+        // Actualizar movimiento.
         final updatedRows =
             await txn.update(
           'transactions',
@@ -498,6 +523,11 @@ class DatabaseHelper {
           whereArgs: [transaction.id],
         );
 
+        if (updatedRows == 0) {
+          return 0;
+        }
+
+        // Aplicar el nuevo efecto.
         await _applyTransaction(
           txn,
           transaction,
@@ -536,11 +566,13 @@ class DatabaseHelper {
           result.first,
         );
 
+        // Revertir efecto sobre la cuenta.
         await _reverseTransaction(
           txn,
           transaction,
         );
 
+        // Eliminar movimiento.
         return await txn.delete(
           'transactions',
           where: 'id = ?',
@@ -662,6 +694,33 @@ class DatabaseHelper {
 
     return await db.transaction(
       (txn) async {
+        // Verificar que exista la tarjeta.
+        final cardResult =
+            await txn.query(
+          'credit_cards',
+          where: 'id = ?',
+          whereArgs: [
+            purchase.creditCardId,
+          ],
+          limit: 1,
+        );
+
+        if (cardResult.isEmpty) {
+          return 0;
+        }
+
+        final card =
+            CreditCard.fromMap(
+          cardResult.first,
+        );
+
+        // No permitir compras superiores
+        // al cupo disponible.
+        if (purchase.remainingAmount >
+            card.availableCredit) {
+          return 0;
+        }
+
         final purchaseId =
             await txn.insert(
           'credit_card_purchases',
@@ -670,6 +729,7 @@ class DatabaseHelper {
               ConflictAlgorithm.replace,
         );
 
+        // Aumentar cupo utilizado.
         await txn.rawUpdate(
           '''
           UPDATE credit_cards
@@ -787,6 +847,7 @@ class DatabaseHelper {
 
     return await db.transaction(
       (txn) async {
+        // Obtener compra anterior.
         final result =
             await txn.query(
           'credit_card_purchases',
@@ -806,21 +867,55 @@ class DatabaseHelper {
           result.first,
         );
 
+        // Si cambió de tarjeta.
         if (oldPurchase.creditCardId !=
             purchase.creditCardId) {
+          // Verificar tarjeta nueva.
+          final newCardResult =
+              await txn.query(
+            'credit_cards',
+            where: 'id = ?',
+            whereArgs: [
+              purchase.creditCardId,
+            ],
+            limit: 1,
+          );
+
+          if (newCardResult.isEmpty) {
+            return 0;
+          }
+
+          final newCard =
+              CreditCard.fromMap(
+            newCardResult.first,
+          );
+
+          // Liberar cupo de tarjeta anterior.
           await txn.rawUpdate(
             '''
             UPDATE credit_cards
             SET used_amount =
-                used_amount - ?
+                CASE
+                  WHEN used_amount - ? < 0
+                  THEN 0
+                  ELSE used_amount - ?
+                END
             WHERE id = ?
             ''',
             [
+              oldPurchase.remainingAmount,
               oldPurchase.remainingAmount,
               oldPurchase.creditCardId,
             ],
           );
 
+          // Verificar cupo de tarjeta nueva.
+          if (purchase.remainingAmount >
+              newCard.availableCredit) {
+            return 0;
+          }
+
+          // Ocupar cupo de tarjeta nueva.
           await txn.rawUpdate(
             '''
             UPDATE credit_cards
@@ -833,30 +928,67 @@ class DatabaseHelper {
               purchase.creditCardId,
             ],
           );
-        } else {
+        }
+
+        // Si continúa en la misma tarjeta.
+        else {
           final difference =
               purchase.remainingAmount -
                   oldPurchase.remainingAmount;
+
+          if (difference > 0) {
+            final cardResult =
+                await txn.query(
+              'credit_cards',
+              where: 'id = ?',
+              whereArgs: [
+                purchase.creditCardId,
+              ],
+              limit: 1,
+            );
+
+            if (cardResult.isEmpty) {
+              return 0;
+            }
+
+            final card =
+                CreditCard.fromMap(
+              cardResult.first,
+            );
+
+            if (difference >
+                card.availableCredit) {
+              return 0;
+            }
+          }
 
           await txn.rawUpdate(
             '''
             UPDATE credit_cards
             SET used_amount =
-                used_amount + ?
+                CASE
+                  WHEN used_amount + ? < 0
+                  THEN 0
+                  ELSE used_amount + ?
+                END
             WHERE id = ?
             ''',
             [
+              difference,
               difference,
               purchase.creditCardId,
             ],
           );
         }
 
+        // Actualizar compra.
         return await txn.update(
           'credit_card_purchases',
           purchase.toMap(),
           where: 'id = ?',
-          whereArgs: [purchase.id],
+          whereArgs: [
+            purchase.id,
+          ],
         );
       },
     );
@@ -890,14 +1022,20 @@ class DatabaseHelper {
           result.first,
         );
 
+        // Liberar únicamente el saldo pendiente.
         await txn.rawUpdate(
           '''
           UPDATE credit_cards
           SET used_amount =
-              used_amount - ?
+              CASE
+                WHEN used_amount - ? < 0
+                THEN 0
+                ELSE used_amount - ?
+              END
           WHERE id = ?
           ''',
           [
+            purchase.remainingAmount,
             purchase.remainingAmount,
             purchase.creditCardId,
           ],
@@ -919,6 +1057,7 @@ class DatabaseHelper {
   Future<int> registerCreditCardPayment({
     required int purchaseId,
     required double paymentAmount,
+    required int accountId,
   }) async {
     if (paymentAmount <= 0) {
       return 0;
@@ -932,7 +1071,7 @@ class DatabaseHelper {
         // OBTENER COMPRA
         // ------------------------------------------------------
 
-        final result =
+        final purchaseResult =
             await txn.query(
           'credit_card_purchases',
           where: 'id = ?',
@@ -942,17 +1081,17 @@ class DatabaseHelper {
           limit: 1,
         );
 
-        if (result.isEmpty) {
+        if (purchaseResult.isEmpty) {
           return 0;
         }
 
         final purchase =
             CreditCardPurchase.fromMap(
-          result.first,
+          purchaseResult.first,
         );
 
         // ------------------------------------------------------
-        // VERIFICAR SALDO PENDIENTE
+        // SALDO PENDIENTE
         // ------------------------------------------------------
 
         final remaining =
@@ -963,7 +1102,30 @@ class DatabaseHelper {
         }
 
         // ------------------------------------------------------
-        // NO PAGAR MÁS DE LO PENDIENTE
+        // OBTENER CUENTA
+        // ------------------------------------------------------
+
+        final accountResult =
+            await txn.query(
+          'accounts',
+          where: 'id = ?',
+          whereArgs: [
+            accountId,
+          ],
+          limit: 1,
+        );
+
+        if (accountResult.isEmpty) {
+          return 0;
+        }
+
+        final account =
+            Account.fromMap(
+          accountResult.first,
+        );
+
+        // ------------------------------------------------------
+        // VALOR REAL DEL PAGO
         // ------------------------------------------------------
 
         final amountToPay =
@@ -972,7 +1134,15 @@ class DatabaseHelper {
                 : paymentAmount;
 
         // ------------------------------------------------------
-        // NUEVO VALOR PAGADO
+        // VERIFICAR SALDO
+        // ------------------------------------------------------
+
+        if (account.balance < amountToPay) {
+          return 0;
+        }
+
+        // ------------------------------------------------------
+        // NUEVO TOTAL PAGADO
         // ------------------------------------------------------
 
         final newPaidAmount =
@@ -980,10 +1150,35 @@ class DatabaseHelper {
                 amountToPay;
 
         // ------------------------------------------------------
+        // DESCONTAR DINERO DE LA CUENTA
+        // ------------------------------------------------------
+
+        final accountUpdated =
+            await txn.rawUpdate(
+          '''
+          UPDATE accounts
+          SET balance =
+              balance - ?
+          WHERE id = ?
+            AND balance >= ?
+          ''',
+          [
+            amountToPay,
+            accountId,
+            amountToPay,
+          ],
+        );
+
+        if (accountUpdated == 0) {
+          return 0;
+        }
+
+        // ------------------------------------------------------
         // ACTUALIZAR COMPRA
         // ------------------------------------------------------
 
-        await txn.update(
+        final purchaseUpdated =
+            await txn.update(
           'credit_card_purchases',
           {
             'paid_amount':
@@ -995,11 +1190,16 @@ class DatabaseHelper {
           ],
         );
 
+        if (purchaseUpdated == 0) {
+          return 0;
+        }
+
         // ------------------------------------------------------
         // REDUCIR CUPO UTILIZADO
         // ------------------------------------------------------
 
-        await txn.rawUpdate(
+        final cardUpdated =
+            await txn.rawUpdate(
           '''
           UPDATE credit_cards
           SET used_amount =
@@ -1016,6 +1216,39 @@ class DatabaseHelper {
             purchase.creditCardId,
           ],
         );
+
+        if (cardUpdated == 0) {
+          return 0;
+        }
+
+        // ------------------------------------------------------
+        // REGISTRAR MOVIMIENTO
+        // ------------------------------------------------------
+
+        final now =
+            DateTime.now().toIso8601String();
+
+        await txn.insert(
+          'transactions',
+          {
+            'type': 'gasto',
+            'amount': amountToPay,
+            'account_id': accountId,
+            'destination_account_id':
+                null,
+            'category':
+                'Pago tarjeta de crédito',
+            'description':
+                'Pago de ${purchase.description}',
+            'date': now,
+          },
+          conflictAlgorithm:
+              ConflictAlgorithm.replace,
+        );
+
+        // ------------------------------------------------------
+        // ÉXITO
+        // ------------------------------------------------------
 
         return 1;
       },
