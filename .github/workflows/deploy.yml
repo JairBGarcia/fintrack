@@ -29,8 +29,32 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      # ==========================================================
+      # CREAR CONFIGURACIÓN DE PAU
+      # ==========================================================
+
+      - name: Create API config
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          mkdir -p lib/config
+
+          cat > lib/config/api_config.dart <<EOF
+          class ApiConfig {
+            static const String groqApiKey = '$GROQ_API_KEY';
+          }
+          EOF
+
+      # ==========================================================
+      # COMPILAR FLUTTER WEB
+      # ==========================================================
+
       - name: Build Flutter Web
         run: flutter build web --release --base-href /fintrack/
+
+      # ==========================================================
+      # GITHUB PAGES
+      # ==========================================================
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
